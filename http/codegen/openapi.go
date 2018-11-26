@@ -28,7 +28,7 @@ func OpenAPIFiles(root *httpdesign.RootExpr) ([]*codegen.File, error) {
 		yamlSection *codegen.SectionTemplate
 	)
 	{
-		spec, err := openapi.NewV2(root)
+		spec, err := openapi.NewV2(root, root.Design.API.Servers[0].Hosts[0])
 		if err != nil {
 			return nil, err
 		}
@@ -47,11 +47,11 @@ func OpenAPIFiles(root *httpdesign.RootExpr) ([]*codegen.File, error) {
 	}
 
 	return []*codegen.File{
-		&codegen.File{
+		{
 			Path:             jsonPath,
 			SectionTemplates: []*codegen.SectionTemplate{jsonSection},
 		},
-		&codegen.File{
+		{
 			Path:             yamlPath,
 			SectionTemplates: []*codegen.SectionTemplate{yamlSection},
 		},

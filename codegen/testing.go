@@ -1,8 +1,8 @@
 package codegen
 
 import (
-	"fmt"
 	"bytes"
+	"fmt"
 	"io/ioutil"
 	"os"
 	"os/exec"
@@ -22,10 +22,8 @@ func RunDSL(t *testing.T, dsl func()) *design.RootExpr {
 	design.Root.GeneratedTypes = &design.GeneratedRoot{}
 	eval.Register(design.Root)
 	eval.Register(design.Root.GeneratedTypes)
-	design.Root.API = &design.APIExpr{
-		Name:    "test api",
-		Servers: []*design.ServerExpr{{URL: "http://localhost"}},
-	}
+	design.Root.API = &design.APIExpr{Name: "test api"}
+	design.Root.API.Servers = []*design.ServerExpr{design.Root.API.DefaultServer()}
 	if !eval.Execute(dsl, nil) {
 		t.Fatal(eval.Context.Error())
 	}
@@ -44,10 +42,8 @@ func RunDSLWithFunc(t *testing.T, dsl func(), fn func()) *design.RootExpr {
 	design.Root.GeneratedTypes = &design.GeneratedRoot{}
 	eval.Register(design.Root)
 	eval.Register(design.Root.GeneratedTypes)
-	design.Root.API = &design.APIExpr{
-		Name:    "test api",
-		Servers: []*design.ServerExpr{{URL: "http://localhost"}},
-	}
+	design.Root.API = &design.APIExpr{Name: "test api"}
+	design.Root.API.Servers = []*design.ServerExpr{design.Root.API.DefaultServer()}
 	fn()
 	if !eval.Execute(dsl, nil) {
 		t.Fatal(eval.Context.Error())
@@ -107,7 +103,7 @@ func FormatTestCode(t *testing.T, code string) string {
 // otherwise degrades to using the dmp package.
 func Diff(t *testing.T, s1, s2 string) string {
 	_, err := exec.LookPath("diff")
-	supportsDiff := (err == nil)
+	supportsDiff := err == nil
 	if !supportsDiff {
 		dmp := diffmatchpatch.New()
 		diffs := dmp.DiffMain(s1, s2, false)

@@ -22,10 +22,9 @@ var update = flag.Bool("update", false, "update .golden files")
 
 func newDesign(httpSvcs ...*httpdesign.ServiceExpr) *httpdesign.RootExpr {
 	openapi.Definitions = make(map[string]*openapi.Schema)
-	a := &design.APIExpr{
-		Name:    "test",
-		Servers: []*design.ServerExpr{{URL: "https://goa.design"}},
-	}
+	a := &design.APIExpr{Name: "test"}
+	a.Servers = []*design.ServerExpr{a.DefaultServer()}
+	a.Servers[0].Hosts[0].URIs = []design.URIExpr{design.URIExpr("https://goa.design")}
 	services := make([]*design.ServiceExpr, len(httpSvcs))
 	for i, r := range httpSvcs {
 		services[i] = r.ServiceExpr
@@ -88,12 +87,11 @@ func TestOpenAPI(t *testing.T) {
 		empty   = newDesign()
 		invalid = newDesign()
 	)
-	invalid.Design.API.Servers[0].URL = invalidURL
+	invalid.Design.API.Servers[0].Hosts[0].URIs[0] = invalidURL
 	cases := map[string]struct {
 		Root  *httpdesign.RootExpr
 		Error bool
 	}{
-		"nil":     {Root: nil, Error: false},
 		"empty":   {Root: empty, Error: false},
 		"valid":   {Root: simple, Error: false},
 		"invalid": {Root: invalid, Error: true},
@@ -354,6 +352,91 @@ func newEndpointComplexValidation(validation *design.ValidationExpr) *httpdesign
 		},
 		Routes:    []*httpdesign.RouteExpr{route},
 		Responses: []*httpdesign.HTTPResponseExpr{},
+	}
+	route.Endpoint = ep
+	return ep
+}
+
+func TestExtensions(t *testing.T) {
+	var (
+		goldenPath = filepath.Join("testdata", "openapi_v2", t.Name())
+	)
+	cases := []struct {
+		Name     string
+		Endpoint *httpdesign.EndpointExpr
+	}{
+		{"endpoint", newEndpointExtensions(design.String,
+			design.MetadataExpr{
+				"swagger:extension:x-test-foo": []string{"bar"},
+			},
+		)},
+	}
+	for _, c := range cases {
+		t.Run(c.Name, func(t *testing.T) {
+			root := newDesign(newService(c.Endpoint))
+			oFiles, err := OpenAPIFiles(root)
+			if err != nil {
+				t.Fatalf("OpenAPI failed with %s", err)
+			}
+			if len(oFiles) == 0 {
+				t.Fatalf("No swagger files")
+			}
+			for i, o := range oFiles {
+				tname := fmt.Sprintf("file%d", i)
+				s := o.SectionTemplates
+				t.Run(tname, func(t *testing.T) {
+					if len(s) != 1 {
+						t.Fatalf("expected 1 section, got %d", len(s))
+					}
+					if s[0].Source == "" {
+						t.Fatalf("empty section template")
+					}
+					if s[0].Data == nil {
+						t.Fatalf("nil data")
+					}
+					var buf bytes.Buffer
+					tmpl := template.Must(template.New("openapi").Funcs(s[0].FuncMap).Parse(s[0].Source))
+					err = tmpl.Execute(&buf, s[0].Data)
+					if err != nil {
+						t.Fatalf("failed to render template: %s", err)
+					}
+					if err := validateSwagger(buf.Bytes()); err != nil {
+						t.Fatalf("invalid swagger: %s", err)
+					}
+
+					golden := filepath.Join(goldenPath, fmt.Sprintf("%s_%s.golden", c.Name, tname))
+					if *update {
+						if err := ioutil.WriteFile(golden, buf.Bytes(), 0644); err != nil {
+							t.Fatalf("failed to update golden file: %s", err)
+						}
+					}
+
+					want, err := ioutil.ReadFile(golden)
+					if err != nil {
+						t.Fatalf("failed to read golden file: %s", err)
+					}
+					if !bytes.Equal(buf.Bytes(), want) {
+						t.Errorf("result do not match the golden file:\n--BEGIN--\n%s\n--END--\n", buf.Bytes())
+					}
+				})
+			}
+		})
+	}
+}
+
+func newEndpointExtensions(typ design.Primitive, metadata design.MetadataExpr) *httpdesign.EndpointExpr {
+	route := &httpdesign.RouteExpr{Method: "POST", Path: "/"}
+	ep := &httpdesign.EndpointExpr{
+		MethodExpr: &design.MethodExpr{
+			Name:    "testEndpoint",
+			Payload: &design.AttributeExpr{Type: design.Empty},
+			Result: &design.AttributeExpr{
+				Type: design.Empty,
+			},
+		},
+		Routes:    []*httpdesign.RouteExpr{route},
+		Responses: []*httpdesign.HTTPResponseExpr{},
+		Metadata:  metadata,
 	}
 	route.Endpoint = ep
 	return ep

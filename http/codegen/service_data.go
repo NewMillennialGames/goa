@@ -201,6 +201,11 @@ type (
 		Responses []*ResponseData
 		// View is the view used to render the result.
 		View string
+		// MustInit indicates if a variable holding the result type must be
+		// initialized. It is used by server response encoder to initialize
+		// the result variable only if there are multiple responses, or the
+		// response has a body or a header.
+		MustInit bool
 	}
 
 	// ErrorGroupData contains the error information required to generate
@@ -289,8 +294,8 @@ type (
 		// TagValue is the value the result attribute named by TagName
 		// must have for this response to be used.
 		TagValue string
-		// TagRequired is true if the tag attribute is required.
-		TagRequired bool
+		// TagPointer is true if the tag attribute is a pointer.
+		TagPointer bool
 		// MustValidate is true if at least one header requires validation.
 		MustValidate bool
 		// ResultAttr sets the response body from the specified result type
@@ -524,8 +529,6 @@ type (
 		Payload *TypeData
 		// Response is the successful response data for the streaming endpoint.
 		Response *ResponseData
-		// Scheme is the scheme used by the streaming connection (ws or wss).
-		Scheme string
 		// SendName is the name of the send function.
 		SendName string
 		// SendDesc is the description for the send function.
@@ -578,23 +581,6 @@ func (svc *ServiceData) Endpoint(name string) *EndpointData {
 	return nil
 }
 
-// NeedServerResponse returns true if server response has a body or a header.
-// It is used when initializing the result in the server response encoding.
-func (e *EndpointData) NeedServerResponse() bool {
-	if e.Result == nil {
-		return false
-	}
-	for _, r := range e.Result.Responses {
-		if len(r.ServerBody) > 0 {
-			return true
-		}
-		if len(r.Headers) > 0 {
-			return true
-		}
-	}
-	return false
-}
-
 // analyze creates the data necessary to render the code of the given service.
 // It records the user types needed by the service definition in userTypes.
 func (d ServicesData) analyze(hs *httpdesign.ServiceExpr) *ServiceData {
@@ -612,20 +598,6 @@ func (d ServicesData) analyze(hs *httpdesign.ServiceExpr) *ServiceData {
 		ClientTypeNames:  make(map[string]bool),
 	}
 
-	var wsscheme string
-	{
-		for _, s := range hs.ServiceExpr.Schemes() {
-			if s == "ws" || s == "wss" {
-				wsscheme = s
-				break
-			}
-		}
-		if wsscheme == "" {
-			// use ws scheme for websocket if none specified
-			wsscheme = "ws"
-		}
-	}
-
 	for _, s := range hs.FileServers {
 		paths := make([]string, len(s.RequestPaths))
 		for i, p := range s.RequestPaths {
@@ -638,7 +610,7 @@ func (d ServicesData) analyze(hs *httpdesign.ServiceExpr) *ServiceData {
 		}
 		var pp string
 		if s.IsDir() {
-			pp = httpdesign.ExtractWildcards(s.RequestPaths[0])[0]
+			pp = design.ExtractWildcards(s.RequestPaths[0])[0]
 		}
 		data := &FileServerData{
 			MountHandler: fmt.Sprintf("Mount%s", codegen.Goify(s.FilePath, true)),
@@ -657,7 +629,7 @@ func (d ServicesData) analyze(hs *httpdesign.ServiceExpr) *ServiceData {
 		i := 0
 		for _, r := range a.Routes {
 			for _, rpath := range r.FullPaths() {
-				params := httpdesign.ExtractRouteWildcards(rpath)
+				params := design.ExtractWildcards(rpath)
 				var (
 					init *InitData
 				)
@@ -693,7 +665,7 @@ func (d ServicesData) analyze(hs *httpdesign.ServiceExpr) *ServiceData {
 					}
 
 					var buffer bytes.Buffer
-					pf := httpdesign.WildcardRegex.ReplaceAllString(rpath, "/%v")
+					pf := design.WildcardRegex.ReplaceAllString(rpath, "/%v")
 					err := pathInitTmpl.Execute(&buffer, map[string]interface{}{
 						"Args":       initArgs,
 						"PathParams": pathParamsObj,
@@ -772,22 +744,19 @@ func (d ServicesData) analyze(hs *httpdesign.ServiceExpr) *ServiceData {
 				}
 			}
 			var buf bytes.Buffer
-			var payloadRef, scheme string
+			var payloadRef string
 			pathInit := routes[0].PathInit
 			if len(pathInit.ClientArgs) > 0 && a.MethodExpr.Payload.Type != design.Empty {
 				payloadRef = svc.Scope.GoFullTypeRef(a.MethodExpr.Payload, svc.PkgName)
 			}
-			if ep.ServerStream != nil || ep.ClientStream != nil {
-				scheme = wsscheme
-			}
 			data := map[string]interface{}{
 				"PayloadRef":   payloadRef,
+				"HasFields":    design.IsObject(a.MethodExpr.Payload.Type),
 				"ServiceName":  svc.Name,
 				"EndpointName": ep.Name,
 				"Args":         args,
 				"PathInit":     pathInit,
 				"Verb":         routes[0].Verb,
-				"Scheme":       scheme,
 			}
 			if err := requestInitTmpl.Execute(&buf, data); err != nil {
 				panic(err) // bug
@@ -828,7 +797,7 @@ func (d ServicesData) analyze(hs *httpdesign.ServiceExpr) *ServiceData {
 			RequestEncoder:  requestEncoder,
 			ResponseDecoder: fmt.Sprintf("Decode%sResponse", ep.VarName),
 		}
-		buildStreamData(ad, a, wsscheme, rd)
+		buildStreamData(ad, a, rd)
 
 		if a.MultipartRequest {
 			ad.MultipartRequestDecoder = &MultipartData{
@@ -1025,10 +994,6 @@ func buildPayloadData(e *httpdesign.EndpointExpr, sd *ServiceData) *PayloadData 
 			name, svc.Name, e.Name())
 		isObject = design.IsObject(payload.Type)
 		if body != design.Empty {
-			ref := "body"
-			if design.IsObject(body) {
-				ref = "&body"
-			}
 			var (
 				svcode string
 				cvcode string
@@ -1041,7 +1006,7 @@ func buildPayloadData(e *httpdesign.EndpointExpr, sd *ServiceData) *PayloadData 
 			}
 			serverArgs = []*InitArgData{{
 				Name:     "body",
-				Ref:      ref,
+				Ref:      svc.Scope.GoVar("body", body),
 				TypeName: svc.Scope.GoTypeName(&design.AttributeExpr{Type: body}),
 				TypeRef:  svc.Scope.GoTypeRef(&design.AttributeExpr{Type: body}),
 				Required: true,
@@ -1050,7 +1015,7 @@ func buildPayloadData(e *httpdesign.EndpointExpr, sd *ServiceData) *PayloadData 
 			}}
 			clientArgs = []*InitArgData{{
 				Name:     "body",
-				Ref:      ref,
+				Ref:      svc.Scope.GoVar("body", body),
 				TypeName: svc.Scope.GoTypeName(&design.AttributeExpr{Type: body}),
 				TypeRef:  svc.Scope.GoTypeRef(&design.AttributeExpr{Type: body}),
 				Required: true,
@@ -1244,14 +1209,13 @@ func buildResultData(e *httpdesign.EndpointExpr, sd *ServiceData) *ResultData {
 		svc    = sd.Service
 		ep     = svc.Method(e.MethodExpr.Name)
 
-		name   string
-		ref    string
-		pkg    string
-		view   string
-		viewed bool
+		name      string
+		ref       string
+		view      string
+		mustInit  bool
+		responses []*ResponseData
 	)
 	{
-		pkg = svc.PkgName
 		view = "default"
 		if result.Metadata != nil {
 			if v, ok := result.Metadata["view"]; ok {
@@ -1262,18 +1226,28 @@ func buildResultData(e *httpdesign.EndpointExpr, sd *ServiceData) *ResultData {
 			name = svc.Scope.GoFullTypeName(result, svc.PkgName)
 			ref = svc.Scope.GoFullTypeRef(result, svc.PkgName)
 		}
+		viewed := false
+		pkg := svc.PkgName
 		if ep.ViewedResult != nil {
 			result = design.AsObject(ep.ViewedResult.Type).Attribute("projected")
 			pkg = svc.ViewsPkg
 			viewed = true
+		}
+		responses = buildResponses(e, result, viewed, sd, pkg)
+		for _, r := range responses {
+			// response has a body or headers or tag
+			if len(r.ServerBody) > 0 || len(r.Headers) > 0 || r.TagName != "" {
+				mustInit = true
+			}
 		}
 	}
 	return &ResultData{
 		IsStruct:  design.IsObject(result.Type),
 		Name:      name,
 		Ref:       ref,
-		Responses: buildResponses(e, result, viewed, sd, pkg),
+		Responses: responses,
 		View:      view,
+		MustInit:  mustInit,
 	}
 }
 
@@ -1460,6 +1434,19 @@ func buildResponses(e *httpdesign.EndpointExpr, result *design.AttributeExpr, vi
 						ClientCode:               code,
 					}
 				}
+
+				var (
+					tagName string
+					tagVal  string
+					tagPtr  bool
+				)
+				{
+					if resp.Tag[0] != "" {
+						tagName = codegen.Goify(resp.Tag[0], true)
+						tagVal = resp.Tag[1]
+						tagPtr = viewed || result.IsPrimitivePointer(resp.Tag[0], true)
+					}
+				}
 				responses = append(responses, &ResponseData{
 					StatusCode:   statusCodeToHTTPConst(resp.StatusCode),
 					Description:  resp.Description,
@@ -1467,9 +1454,9 @@ func buildResponses(e *httpdesign.EndpointExpr, result *design.AttributeExpr, vi
 					ServerBody:   serverBodyData,
 					ClientBody:   clientBodyData,
 					ResultInit:   init,
-					TagName:      codegen.Goify(resp.Tag[0], true),
-					TagValue:     resp.Tag[1],
-					TagRequired:  result.IsRequired(resp.Tag[0]) && !viewed,
+					TagName:      tagName,
+					TagValue:     tagVal,
+					TagPointer:   tagPtr,
 					MustValidate: mustValidate,
 					ResultAttr:   codegen.Goify(origin, true),
 					ViewedResult: md.ViewedResult,
@@ -1654,7 +1641,7 @@ func buildErrorsData(e *httpdesign.EndpointExpr, sd *ServiceData) []*ErrorGroupD
 	return vals
 }
 
-func buildStreamData(ed *EndpointData, e *httpdesign.EndpointExpr, scheme string, sd *ServiceData) {
+func buildStreamData(ed *EndpointData, e *httpdesign.EndpointExpr, sd *ServiceData) {
 	if !e.MethodExpr.IsStreaming() {
 		return
 	}
@@ -1775,7 +1762,6 @@ func buildStreamData(ed *EndpointData, e *httpdesign.EndpointExpr, scheme string
 		Payload:      svrPayload,
 		Response:     ed.Result.Responses[0],
 		PkgName:      svc.PkgName,
-		Scheme:       scheme,
 		Type:         "server",
 		Kind:         md.ServerStream.Kind,
 		SendName:     md.ServerStream.SendName,
@@ -1795,7 +1781,6 @@ func buildStreamData(ed *EndpointData, e *httpdesign.EndpointExpr, scheme string
 		Payload:      cliPayload,
 		Response:     ed.Result.Responses[0],
 		PkgName:      svc.PkgName,
-		Scheme:       scheme,
 		Type:         "client",
 		Kind:         md.ClientStream.Kind,
 		SendName:     md.ClientStream.SendName,
@@ -1848,7 +1833,7 @@ func buildRequestBodyType(sd *ServiceData, e *httpdesign.EndpointExpr, body, att
 				}
 			}
 		} else {
-			varname = svc.Scope.GoTypeRef(body)
+			varname = svc.Scope.GoTypeRef(&design.AttributeExpr{Type: body.Type})
 			validateRef = codegen.RecursiveValidationCode(body, true, svr, !svr, "body")
 			desc = body.Description
 		}
@@ -2418,16 +2403,16 @@ const (
 		}
 	{{- range .Args }}
 		{{- if .Pointer }}
-		if p.{{ .FieldName }} != nil {
+		if p{{ if $.HasFields }}.{{ .FieldName }}{{ end }} != nil {
 		{{- end }}
-			{{ .Name }} = {{ if .Pointer }}*{{ end }}p.{{ .FieldName }}
+			{{ .Name }} = {{ if .Pointer }}*{{ end }}p{{ if $.HasFields }}.{{ .FieldName }}{{ end }}
 		{{- if .Pointer }}
 		}
 		{{- end }}
 	{{- end }}
 	}
 {{- end }}
-	u := &url.URL{Scheme: {{ if .Scheme }}{{ printf "%q" .Scheme }}{{ else }}c.scheme{{ end }}, Host: c.host, Path: {{ .PathInit.Name }}({{ range .PathInit.ClientArgs }}{{ .Ref }}, {{ end }})}
+	u := &url.URL{Scheme: c.scheme, Host: c.host, Path: {{ .PathInit.Name }}({{ range .PathInit.ClientArgs }}{{ .Ref }}, {{ end }})}
 	req, err := http.NewRequest("{{ .Verb }}", u.String(), nil)
 	if err != nil {
 		return nil, goahttp.ErrInvalidURL("{{ .ServiceName }}", "{{ .EndpointName }}", u.String(), err)

@@ -77,11 +77,11 @@ func EndpointFile(genpkg string, service *design.ServiceExpr) *codegen.File {
 	{
 		header := codegen.Header(service.Name+" endpoints", svc.PkgName,
 			[]*codegen.ImportSpec{
-				&codegen.ImportSpec{Path: "context"},
-				&codegen.ImportSpec{Path: "fmt"},
-				&codegen.ImportSpec{Name: "goa", Path: "goa.design/goa"},
-				&codegen.ImportSpec{Path: "goa.design/goa/security"},
-				&codegen.ImportSpec{Path: genpkg + "/" + codegen.SnakeCase(service.Name) + "/" + "views", Name: svc.ViewsPkg},
+				{Path: "context"},
+				{Path: "fmt"},
+				{Name: "goa", Path: "goa.design/goa"},
+				{Path: "goa.design/goa/security"},
+				{Path: genpkg + "/" + codegen.SnakeCase(service.Name) + "/" + "views", Name: svc.ViewsPkg},
 			})
 		def := &codegen.SectionTemplate{
 			Name:   "endpoints-struct",
@@ -184,10 +184,14 @@ type {{ .VarName }} struct {
 
 // input: EndpointsData
 const serviceEndpointsInitT = `{{ printf "New%s wraps the methods of the %q service with endpoints." .VarName .Name | comment }}
-func New{{ .VarName }}(s {{ .ServiceVarName }}{{ range .Schemes }}, auth{{ . }}Fn security.Auth{{ . }}Func{{ end }}) *{{ .VarName }} {
+func New{{ .VarName }}(s {{ .ServiceVarName }}) *{{ .VarName }} {
+{{- if .Schemes }}
+	// Casting service to Auther interface
+	a := s.(Auther)
+{{- end }}
 	return &{{ .VarName }}{
 {{- range .Methods }}
-		{{ .VarName }}: New{{ .VarName }}Endpoint(s{{ range .Schemes }}, auth{{ . }}Fn{{ end }}),
+		{{ .VarName }}: New{{ .VarName }}Endpoint(s{{ range .Schemes }}, a.{{ . }}Auth{{ end }}),
 {{- end }}
 	}
 }

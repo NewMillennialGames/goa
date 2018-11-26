@@ -70,7 +70,8 @@ func DecodeListResponse(decoder func(*http.Response) goahttp.Decoder, restoreBod
 			if err = vres.Validate(); err != nil {
 				return nil, goahttp.ErrValidationError("storage", "list", err)
 			}
-			return storage.NewStoredBottleCollection(vres), nil
+			res := storage.NewStoredBottleCollection(vres)
+			return res, nil
 		default:
 			body, _ := ioutil.ReadAll(resp.Body)
 			return nil, goahttp.ErrInvalidResponse("storage", "list", resp.StatusCode, string(body))
@@ -156,7 +157,8 @@ func DecodeShowResponse(decoder func(*http.Response) goahttp.Decoder, restoreBod
 			if err = vres.Validate(); err != nil {
 				return nil, goahttp.ErrValidationError("storage", "show", err)
 			}
-			return storage.NewStoredBottle(vres), nil
+			res := storage.NewStoredBottle(vres)
+			return res, nil
 		case http.StatusNotFound:
 			var (
 				body ShowNotFoundResponseBody
@@ -520,6 +522,19 @@ func DecodeMultiUpdateResponse(decoder func(*http.Response) goahttp.Decoder, res
 			return nil, goahttp.ErrInvalidResponse("storage", "multi_update", resp.StatusCode, string(body))
 		}
 	}
+}
+
+// unmarshalWineryResponseToWineryView builds a value of type
+// *storageviews.WineryView from a value of type *WineryResponse.
+func unmarshalWineryResponseToWineryView(v *WineryResponse) *storageviews.WineryView {
+	res := &storageviews.WineryView{
+		Name:    v.Name,
+		Region:  v.Region,
+		Country: v.Country,
+		URL:     v.URL,
+	}
+
+	return res
 }
 
 // unmarshalWineryResponseBodyToWineryView builds a value of type

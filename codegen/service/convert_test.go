@@ -1,6 +1,7 @@
 package service
 
 import (
+	"os"
 	"reflect"
 	"testing"
 	"time"
@@ -21,6 +22,66 @@ type (
 		inner inner
 	}
 )
+
+func TestCommonPath(t *testing.T) {
+	cases := map[string]struct {
+		Paths              []string
+		ExpectedCommonPath string
+	}{
+		"common-path-exist": {
+			Paths: []string{
+				"/home/user1/tmp/coverage/test",
+				"/home/user1/tmp/covert/operator",
+				"/home/user1/tmp/coven/members",
+				"/home//user1/tmp/coventry",
+				"/home/user1/././tmp/covertly/foo",
+				"/home/bob/../user1/tmp/coved/bar",
+			},
+			ExpectedCommonPath: "/home/user1/tmp",
+		},
+		"common-path-does-not-exist": {
+			Paths: []string{
+				"/home1/user1/tmp/coverage/test",
+				"/home/user1/tmp/covert/operator",
+			},
+			ExpectedCommonPath: "",
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			cp := commonPath('/', tc.Paths...)
+			if cp != tc.ExpectedCommonPath {
+				t.Errorf("got %s expected %s", cp, tc.ExpectedCommonPath)
+			}
+		})
+	}
+}
+
+func TestPkgImport(t *testing.T) {
+	cwd := os.Getenv("GOPATH") + "/src/goa.design/goa/codegen/service"
+	goModCwd := "/home/user/project/goa/codegen/service"
+	cases := []struct {
+		Name           string
+		Cwd            string
+		Pkg            string
+		ExpectedImport string
+	}{
+		{"root-pkg", cwd, "goa.design/goa", "goa.design/goa"},
+		{"internal-pkg", cwd, "goa.design/goa/codegen", "goa.design/goa/codegen"},
+		{"vendored-pkg", cwd, "goa.design/goa/vendor/github.com/some/pkg", "github.com/some/pkg"},
+		{"external-pkg", cwd, "github.com/some/pkg", "github.com/some/pkg"},
+		{"gomod-root-pkg", goModCwd, "goa.design/goa", "goa.design/goa"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.Name, func(t *testing.T) {
+			pkgImport := getPkgImport(tc.Pkg, tc.Cwd)
+			if pkgImport != tc.ExpectedImport {
+				t.Errorf("got %s, expected %s", pkgImport, tc.ExpectedImport)
+			}
+		})
+	}
+}
 
 func TestDesignType(t *testing.T) {
 	var f bool
@@ -44,7 +105,7 @@ func TestDesignType(t *testing.T) {
 		{"array", []string{}, dsl.ArrayOf(design.String), ""},
 		{"map", map[string]string{}, dsl.MapOf(design.String, design.String), ""},
 		{"object", objT{}, obj, ""},
-		{"array-object", []objT{objT{}}, dsl.ArrayOf(obj), ""},
+		{"array-object", []objT{{}}, dsl.ArrayOf(obj), ""},
 
 		{"invalid-bool", &f, nil, "*(<value>): only pointer to struct can be converted"},
 		{"invalid-array", []*bool{&f}, nil, "*(<value>[0]): only pointer to struct can be converted"},
@@ -107,7 +168,7 @@ func TestCompatible(t *testing.T) {
 		{"object-ignored", objIgnored, objT{}, ""},
 		{"object-extra", objIgnored, objExtraT{}, ""},
 		{"object-recursive", objRecursive(), objRecursiveT{}, ""},
-		{"array-object", dsl.ArrayOf(obj), []objT{objT{}}, ""},
+		{"array-object", dsl.ArrayOf(obj), []objT{{}}, ""},
 
 		{"invalid-primitive", design.String, 0, "types don't match: type of <value> is int but type of corresponding attribute is string"},
 		{"invalid-int", design.Int, 0.0, "types don't match: type of <value> is float64 but type of corresponding attribute is int"},
@@ -120,7 +181,7 @@ func TestCompatible(t *testing.T) {
 		{"invalid-obj-3", obj, objT3{}, "types don't match: type of <value>.Goo is int but type of corresponding attribute is float32"},
 		{"invalid-obj-4", obj, objT4{}, "types don't match: type of <value>.Goo2 is float32 but type of corresponding attribute is uint"},
 		{"invalid-obj-5", obj, objT5{}, "types don't match: could not find field \"Baz\" of external type \"objT5\" matching attribute \"Baz\" of type \"objT\""},
-		{"invalid-array-object", dsl.ArrayOf(obj), []objT2{objT2{}}, "types don't match: type of <value>[0].Bar is string but type of corresponding attribute is int"},
+		{"invalid-array-object", dsl.ArrayOf(obj), []objT2{{}}, "types don't match: type of <value>[0].Bar is string but type of corresponding attribute is int"},
 	}
 	for _, c := range cases {
 		t.Run(c.Name, func(t *testing.T) {
@@ -157,6 +218,16 @@ func TestConvertFile(t *testing.T) {
 		{"create-string-required", testdata.CreateStringRequiredDSL, 1, testdata.CreateStringRequiredCode},
 		{"create-string-pointer", testdata.CreateStringPointerDSL, 1, testdata.CreateStringPointerCode},
 		{"create-string-pointer-required", testdata.CreateStringPointerRequiredDSL, 1, testdata.CreateStringPointerRequiredCode},
+
+		{"convert-external-name", testdata.ConvertExternalNameDSL, 1, testdata.ConvertExternalNameCode},
+		{"convert-external-name-required", testdata.ConvertExternalNameRequiredDSL, 1, testdata.ConvertExternalNameRequiredCode},
+		{"convert-external-name-pointer", testdata.ConvertExternalNamePointerDSL, 1, testdata.ConvertExternalNamePointerCode},
+		{"convert-external-name-pointer-required", testdata.ConvertExternalNamePointerRequiredDSL, 1, testdata.ConvertExternalNamePointerRequiredCode},
+		{"create-external-name", testdata.CreateExternalNameDSL, 1, testdata.CreateExternalNameCode},
+		{"create-external-name-required", testdata.CreateExternalNameRequiredDSL, 1, testdata.CreateExternalNameRequiredCode},
+		{"create-external-name-pointer", testdata.CreateExternalNamePointerDSL, 1, testdata.CreateExternalNamePointerCode},
+		{"create-external-name-pointer-required", testdata.CreateExternalNamePointerRequiredDSL, 1, testdata.CreateExternalNamePointerRequiredCode},
+
 		{"convert-array-string", testdata.ConvertArrayStringDSL, 1, testdata.ConvertArrayStringCode},
 		{"convert-array-string-required", testdata.ConvertArrayStringRequiredDSL, 1, testdata.ConvertArrayStringRequiredCode},
 		{"create-array-string", testdata.CreateArrayStringDSL, 1, testdata.CreateArrayStringCode},
@@ -211,10 +282,8 @@ func runDSL(t *testing.T, dsl func()) *design.RootExpr {
 	eval.Reset()
 	design.Root = new(design.RootExpr)
 	eval.Register(design.Root)
-	design.Root.API = &design.APIExpr{
-		Name:    "test api",
-		Servers: []*design.ServerExpr{{URL: "http://localhost"}},
-	}
+	design.Root.API = &design.APIExpr{Name: "test api"}
+	design.Root.API.Servers = []*design.ServerExpr{design.Root.API.DefaultServer()}
 
 	// run DSL (first pass)
 	if !eval.Execute(dsl, nil) {
