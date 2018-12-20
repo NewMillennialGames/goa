@@ -6,24 +6,23 @@ import (
 
 	"goa.design/goa/codegen"
 	"goa.design/goa/codegen/service"
-	"goa.design/goa/design"
-	httpdesign "goa.design/goa/http/design"
+	"goa.design/goa/expr"
 )
 
 // ClientFiles returns the client HTTP transport files.
-func ClientFiles(genpkg string, root *httpdesign.RootExpr) []*codegen.File {
-	fw := make([]*codegen.File, 2*len(root.HTTPServices))
-	for i, r := range root.HTTPServices {
+func ClientFiles(genpkg string, root *expr.RootExpr) []*codegen.File {
+	fw := make([]*codegen.File, 2*len(root.API.HTTP.Services))
+	for i, r := range root.API.HTTP.Services {
 		fw[i] = client(genpkg, r)
 	}
-	for i, r := range root.HTTPServices {
-		fw[i+len(root.HTTPServices)] = clientEncodeDecode(genpkg, r)
+	for i, r := range root.API.HTTP.Services {
+		fw[i+len(root.API.HTTP.Services)] = clientEncodeDecode(genpkg, r)
 	}
 	return fw
 }
 
 // client returns the client HTTP transport file
-func client(genpkg string, svc *httpdesign.ServiceExpr) *codegen.File {
+func client(genpkg string, svc *expr.HTTPServiceExpr) *codegen.File {
 	path := filepath.Join(codegen.Gendir, "http", codegen.SnakeCase(svc.Name()), "client", "client.go")
 	data := HTTPServices.Get(svc.Name())
 	title := fmt.Sprintf("%s client HTTP transport", svc.Name())
@@ -100,7 +99,7 @@ func client(genpkg string, svc *httpdesign.ServiceExpr) *codegen.File {
 				})
 			}
 			switch e.ClientStream.Kind {
-			case design.ClientStreamKind, design.BidirectionalStreamKind:
+			case expr.ClientStreamKind, expr.BidirectionalStreamKind:
 				sections = append(sections, &codegen.SectionTemplate{
 					Name:   "client-stream-send",
 					Source: streamSendT,
@@ -136,7 +135,7 @@ func client(genpkg string, svc *httpdesign.ServiceExpr) *codegen.File {
 
 // clientEncodeDecode returns the file containing the HTTP client encoding and
 // decoding logic.
-func clientEncodeDecode(genpkg string, svc *httpdesign.ServiceExpr) *codegen.File {
+func clientEncodeDecode(genpkg string, svc *expr.HTTPServiceExpr) *codegen.File {
 	path := filepath.Join(codegen.Gendir, "http", codegen.SnakeCase(svc.Name()), "client", "encode_decode.go")
 	data := HTTPServices.Get(svc.Name())
 	title := fmt.Sprintf("%s HTTP client encoders and decoders", svc.Name())
@@ -205,7 +204,7 @@ func clientEncodeDecode(genpkg string, svc *httpdesign.ServiceExpr) *codegen.Fil
 
 // typeConversionData produces the template data suitable for executing the
 // "header_conversion" template.
-func typeConversionData(dt design.DataType, varName string, target string) map[string]interface{} {
+func typeConversionData(dt expr.DataType, varName string, target string) map[string]interface{} {
 	return map[string]interface{}{
 		"Type":    dt,
 		"VarName": varName,
@@ -517,7 +516,7 @@ func {{ .ResponseDecoder }}(decoder func(*http.Response) goahttp.Decoder, restor
 				{{- end }}
 			vres := {{ if not $.Method.ViewedResult.IsCollection }}&{{ end }}{{ $.Method.ViewedResult.ViewsPkg}}.{{ $.Method.ViewedResult.VarName }}{p, view}
 			{{- if .ClientBody }}
-				if err = vres.Validate(); err != nil {
+				if err = {{ $.Method.ViewedResult.ViewsPkg}}.Validate{{ $.Method.Result }}(vres); err != nil {
 					return nil, goahttp.ErrValidationError("{{ $.ServiceName }}", "{{ $.Method.Name }}", err)
 				}
 			{{- end }}
@@ -737,7 +736,7 @@ func (c *{{ .ClientStream.VarName }}) Recv() ({{ .Result.Ref }}, error) {
 		return nil, err
 	}
 	{{- if .Method.ViewedResult }}
-	if err := &vres.Validate(); err != nil {
+	if err := {{ .Method.ViewedResult.ViewsPkg }}.Validate{{ .Result.Name }}(vres); err != nil {
 		return nil, goahttp.ErrValidationError("{{ $.ServiceName }}", "{{ $.Method.Name }}", err)
 	}
 	return {{ $.ServicePkgName }}.{{ .Method.ViewedResult.ResultInit.Name }}(vres), nil
