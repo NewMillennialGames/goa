@@ -205,6 +205,9 @@ func (m *MethodExpr) Finalize() {
 		m.Result = &AttributeExpr{Type: Empty}
 	} else {
 		m.Result.Finalize()
+		if rt, ok := m.Result.Type.(*ResultTypeExpr); ok {
+			rt.Finalize()
+		}
 	}
 	for _, e := range m.Errors {
 		e.Finalize()
@@ -235,6 +238,11 @@ func (m *MethodExpr) Finalize() {
 // IsStreaming determines whether the method streams payload or result.
 func (m *MethodExpr) IsStreaming() bool {
 	return m.Stream != 0 && m.Stream != NoStreamKind
+}
+
+// IsPayloadStreaming determines whether the method streams payload.
+func (m *MethodExpr) IsPayloadStreaming() bool {
+	return m.Stream == ClientStreamKind || m.Stream == BidirectionalStreamKind
 }
 
 // helper function that duplicates just enough of a security expression so that

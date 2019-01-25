@@ -94,6 +94,7 @@ func TestDecode(t *testing.T) {
 		{"query-string-default", testdata.PayloadQueryStringDefaultDSL, testdata.PayloadQueryStringDefaultDecodeCode},
 		{"query-string-default-validate", testdata.PayloadQueryStringDefaultValidateDSL, testdata.PayloadQueryStringDefaultValidateDecodeCode},
 		{"query-primitive-string-default", testdata.PayloadQueryPrimitiveStringDefaultDSL, testdata.PayloadQueryPrimitiveStringDefaultDecodeCode},
+		{"query-string-extended-payload", testdata.PayloadExtendedQueryStringDSL, testdata.PayloadExtendedQueryStringDecodeCode},
 
 		{"path-string", testdata.PayloadPathStringDSL, testdata.PayloadPathStringDecodeCode},
 		{"path-string-validate", testdata.PayloadPathStringValidateDSL, testdata.PayloadPathStringValidateDecodeCode},
@@ -141,6 +142,8 @@ func TestDecode(t *testing.T) {
 
 		{"body-primitive-array-user-validate", testdata.PayloadBodyPrimitiveArrayUserValidateDSL, testdata.PayloadBodyPrimitiveArrayUserValidateDecodeCode},
 		{"body-primitive-field-array-user", testdata.PayloadBodyPrimitiveFieldArrayUserDSL, testdata.PayloadBodyPrimitiveFieldArrayUserDecodeCode},
+		{"body-extend-primitive-field-array-user", testdata.PayloadExtendBodyPrimitiveFieldArrayUserDSL, testdata.PayloadBodyPrimitiveFieldArrayUserDecodeCode},
+		{"body-extend-primitive-field-string", testdata.PayloadExtendBodyPrimitiveFieldStringDSL, testdata.PayloadBodyPrimitiveFieldStringDecodeCode},
 		{"body-primitive-field-array-user-validate", testdata.PayloadBodyPrimitiveFieldArrayUserValidateDSL, testdata.PayloadBodyPrimitiveFieldArrayUserValidateDecodeCode},
 
 		{"body-query-object", testdata.PayloadBodyQueryObjectDSL, testdata.PayloadBodyQueryObjectDecodeCode},

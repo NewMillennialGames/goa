@@ -1290,6 +1290,23 @@ var PayloadQueryPrimitiveStringDefaultDSL = func() {
 	})
 }
 
+var PayloadExtendedQueryStringDSL = func() {
+	var UT = Type("UserType", func() {
+		Attribute("q", String)
+	})
+	Service("ServiceQueryStringExtendedPayload", func() {
+		Method("MethodQueryStringExtendedPayload", func() {
+			Payload(func() {
+				Extend(UT)
+			})
+			HTTP(func() {
+				GET("/")
+				Param("q")
+			})
+		})
+	})
+}
+
 var PayloadPathStringDSL = func() {
 	Service("ServicePathString", func() {
 		Method("MethodPathString", func() {
@@ -1911,6 +1928,44 @@ var PayloadBodyPrimitiveFieldArrayUserDSL = func() {
 			HTTP(func() {
 				POST("/")
 				Body("a")
+			})
+		})
+	})
+}
+
+var PayloadExtendBodyPrimitiveFieldArrayUserDSL = func() {
+	var Ext = Type("Ext", func() {
+		Attribute("b", String)
+	})
+	var PayloadType = Type("PayloadType", func() {
+		Extend(Ext)
+		Attribute("a", ArrayOf(String))
+	})
+	Service("ServiceBodyPrimitiveArrayUser", func() {
+		Method("MethodBodyPrimitiveArrayUser", func() {
+			Payload(PayloadType)
+			HTTP(func() {
+				POST("/")
+				Body("a")
+			})
+		})
+	})
+}
+
+var PayloadExtendBodyPrimitiveFieldStringDSL = func() {
+	var Ext = Type("Ext", func() {
+		Attribute("b", String)
+	})
+	var PayloadType = Type("PayloadType", func() {
+		Extend(Ext)
+		Attribute("a", ArrayOf(String))
+	})
+	Service("ServiceBodyPrimitiveArrayUser", func() {
+		Method("MethodBodyPrimitiveArrayUser", func() {
+			Payload(PayloadType)
+			HTTP(func() {
+				POST("/")
+				Body("b")
 			})
 		})
 	})

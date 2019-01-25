@@ -2,9 +2,11 @@ package generator
 
 import (
 	"goa.design/goa/codegen"
+	"goa.design/goa/codegen/server"
 	"goa.design/goa/codegen/service"
 	"goa.design/goa/eval"
 	"goa.design/goa/expr"
+	grpccodegen "goa.design/goa/grpc/codegen"
 	httpcodegen "goa.design/goa/http/codegen"
 )
 
@@ -18,10 +20,24 @@ func Example(genpkg string, roots []eval.Root) ([]*codegen.File, error) {
 			continue // could be a plugin root expression
 		}
 
-		// Auth
-		f := service.AuthFuncsFile(genpkg, r)
-		if f != nil {
+		// example service implementation
+		if fs := service.ExampleServiceFiles(genpkg, r); len(fs) != 0 {
+			files = append(files, fs...)
+		}
+
+		// example auth file
+		if f := service.AuthFuncsFile(genpkg, r); f != nil {
 			files = append(files, f)
+		}
+
+		// server main
+		if fs := server.ExampleServerFiles(genpkg, r); len(fs) != 0 {
+			files = append(files, fs...)
+		}
+
+		// CLI main
+		if fs := server.ExampleCLIFiles(genpkg, r); len(fs) != 0 {
+			files = append(files, fs...)
 		}
 
 		// HTTP
@@ -30,9 +46,25 @@ func Example(genpkg string, roots []eval.Root) ([]*codegen.File, error) {
 			for _, s := range r.API.HTTP.Services {
 				svcs = append(svcs, s.Name())
 			}
-			files = append(files, httpcodegen.ExampleServerFiles(genpkg, r)...)
-			if cli := httpcodegen.ExampleCLI(genpkg, r); cli != nil {
-				files = append(files, cli...)
+			if fs := httpcodegen.ExampleServerFiles(genpkg, r); len(fs) != 0 {
+				files = append(files, fs...)
+			}
+			if fs := httpcodegen.ExampleCLIFiles(genpkg, r); len(fs) != 0 {
+				files = append(files, fs...)
+			}
+		}
+
+		// GRPC
+		if len(r.API.GRPC.Services) > 0 {
+			svcs := make([]string, 0, len(r.API.GRPC.Services))
+			for _, s := range r.API.GRPC.Services {
+				svcs = append(svcs, s.Name())
+			}
+			if fs := grpccodegen.ExampleServerFiles(genpkg, r); len(fs) > 0 {
+				files = append(files, fs...)
+			}
+			if fs := grpccodegen.ExampleCLIFiles(genpkg, r); len(fs) > 0 {
+				files = append(files, fs...)
 			}
 		}
 	}

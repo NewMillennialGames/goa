@@ -2562,6 +2562,25 @@ func DecodeMethodQueryPrimitiveStringDefaultRequest(mux goahttp.Muxer, decoder f
 }
 `
 
+var PayloadExtendedQueryStringDecodeCode = `// DecodeMethodQueryStringExtendedPayloadRequest returns a decoder for requests
+// sent to the ServiceQueryStringExtendedPayload
+// MethodQueryStringExtendedPayload endpoint.
+func DecodeMethodQueryStringExtendedPayloadRequest(mux goahttp.Muxer, decoder func(*http.Request) goahttp.Decoder) func(*http.Request) (interface{}, error) {
+	return func(r *http.Request) (interface{}, error) {
+		var (
+			q *string
+		)
+		qRaw := r.URL.Query().Get("q")
+		if qRaw != "" {
+			q = &qRaw
+		}
+		payload := NewMethodQueryStringExtendedPayloadPayload(q)
+
+		return payload, nil
+	}
+}
+`
+
 var PayloadPathStringDecodeCode = `// DecodeMethodPathStringRequest returns a decoder for requests sent to the
 // ServicePathString MethodPathString endpoint.
 func DecodeMethodPathStringRequest(mux goahttp.Muxer, decoder func(*http.Request) goahttp.Decoder) func(*http.Request) (interface{}, error) {
@@ -3178,11 +3197,8 @@ var PayloadBodyNestedUserDecodeCode = `// DecodeMethodBodyUserRequest returns a 
 func DecodeMethodBodyUserRequest(mux goahttp.Muxer, decoder func(*http.Request) goahttp.Decoder) func(*http.Request) (interface{}, error) {
 	return func(r *http.Request) (interface{}, error) {
 		var (
-			body struct {
-				A *string
-				B *string
-			}
-			err error
+			body NestedType
+			err  error
 		)
 		err = decoder(r).Decode(&body)
 		if err != nil {
@@ -3191,13 +3207,11 @@ func DecodeMethodBodyUserRequest(mux goahttp.Muxer, decoder func(*http.Request) 
 			}
 			return nil, goa.DecodePayloadError(err.Error())
 		}
-		if body.A == nil {
-			err = goa.MergeErrors(err, goa.MissingFieldError("a", "body"))
-		}
+		err = ValidateNestedType(&body)
 		if err != nil {
 			return nil, err
 		}
-		payload := NewMethodBodyUserPayloadType(body)
+		payload := NewMethodBodyUserPayloadType(&body)
 
 		return payload, nil
 	}
@@ -3604,6 +3618,29 @@ func DecodeMethodBodyPrimitiveArrayUserRequest(mux goahttp.Muxer, decoder func(*
 	return func(r *http.Request) (interface{}, error) {
 		var (
 			body []string
+			err  error
+		)
+		err = decoder(r).Decode(&body)
+		if err != nil {
+			if err == io.EOF {
+				return nil, goa.MissingPayloadError()
+			}
+			return nil, goa.DecodePayloadError(err.Error())
+		}
+		payload := NewMethodBodyPrimitiveArrayUserPayloadType(body)
+
+		return payload, nil
+	}
+}
+`
+
+var PayloadBodyPrimitiveFieldStringDecodeCode = `// DecodeMethodBodyPrimitiveArrayUserRequest returns a decoder for requests
+// sent to the ServiceBodyPrimitiveArrayUser MethodBodyPrimitiveArrayUser
+// endpoint.
+func DecodeMethodBodyPrimitiveArrayUserRequest(mux goahttp.Muxer, decoder func(*http.Request) goahttp.Decoder) func(*http.Request) (interface{}, error) {
+	return func(r *http.Request) (interface{}, error) {
+		var (
+			body string
 			err  error
 		)
 		err = decoder(r).Decode(&body)
@@ -4084,19 +4121,24 @@ func DecodeMapQueryPrimitivePrimitiveRequest(mux goahttp.Muxer, decoder func(*ht
 	return func(r *http.Request) (interface{}, error) {
 		var (
 			query map[string]string
+			err   error
 		)
 		{
 			queryRaw := r.URL.Query()
-			if len(queryRaw) != 0 {
-				query = make(map[string]string, len(queryRaw))
-				for key, va := range queryRaw {
-					var val string
-					{
-						val = va[0]
-					}
-					query[key] = val
-				}
+			if len(queryRaw) == 0 {
+				err = goa.MergeErrors(err, goa.MissingFieldError("query", "query string"))
 			}
+			query = make(map[string]string, len(queryRaw))
+			for key, va := range queryRaw {
+				var val string
+				{
+					val = va[0]
+				}
+				query[key] = val
+			}
+		}
+		if err != nil {
+			return nil, err
 		}
 		payload := query
 
@@ -4115,22 +4157,23 @@ func DecodeMapQueryPrimitiveArrayRequest(mux goahttp.Muxer, decoder func(*http.R
 		)
 		{
 			queryRaw := r.URL.Query()
-			if len(queryRaw) != 0 {
-				query = make(map[string][]uint, len(queryRaw))
-				for key, valRaw := range queryRaw {
-					var val []uint
-					{
-						val = make([]uint, len(valRaw))
-						for i, rv := range valRaw {
-							v, err2 := strconv.ParseUint(rv, 10, strconv.IntSize)
-							if err2 != nil {
-								err = goa.MergeErrors(err, goa.InvalidFieldTypeError("val", valRaw, "array of unsigned integers"))
-							}
-							val[i] = uint(v)
+			if len(queryRaw) == 0 {
+				err = goa.MergeErrors(err, goa.MissingFieldError("query", "query string"))
+			}
+			query = make(map[string][]uint, len(queryRaw))
+			for key, valRaw := range queryRaw {
+				var val []uint
+				{
+					val = make([]uint, len(valRaw))
+					for i, rv := range valRaw {
+						v, err2 := strconv.ParseUint(rv, 10, strconv.IntSize)
+						if err2 != nil {
+							err = goa.MergeErrors(err, goa.InvalidFieldTypeError("val", valRaw, "array of unsigned integers"))
 						}
+						val[i] = uint(v)
 					}
-					query[key] = val
 				}
+				query[key] = val
 			}
 		}
 		if err != nil {
@@ -4188,10 +4231,6 @@ func DecodeMethodMapQueryObjectRequest(mux goahttp.Muxer, decoder func(*http.Req
 				}
 				c[key] = val
 			}
-		}
-		err = goa.MergeErrors(err, goa.ValidatePattern("c.a", c.A, "patterna"))
-		if c.B != nil {
-			err = goa.MergeErrors(err, goa.ValidatePattern("c.b", *c.B, "patternb"))
 		}
 		if err != nil {
 			return nil, err

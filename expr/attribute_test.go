@@ -7,6 +7,52 @@ import (
 	"goa.design/goa/eval"
 )
 
+func TestTaggedAttribute(t *testing.T) {
+	cases := map[string]struct {
+		a        *AttributeExpr
+		expected string
+	}{
+		"tagged attribute": {
+			a: &AttributeExpr{
+				Type: &Object{
+					&NamedAttributeExpr{
+						Name: "Foo",
+						Attribute: &AttributeExpr{
+							Meta: MetaExpr{
+								"foo": []string{"foo"},
+							},
+						},
+					},
+				},
+			},
+			expected: "Foo",
+		},
+		"not object": {
+			a: &AttributeExpr{
+				Type: Boolean,
+			},
+			expected: "",
+		},
+		"no meta": {
+			a: &AttributeExpr{
+				Type: &Object{
+					&NamedAttributeExpr{
+						Name:      "foo",
+						Attribute: &AttributeExpr{},
+					},
+				},
+			},
+			expected: "",
+		},
+	}
+
+	for k, tc := range cases {
+		if actual := TaggedAttribute(tc.a, "foo"); tc.expected != actual {
+			t.Errorf("%s: got %#v, expected %#v", k, actual, tc.expected)
+		}
+	}
+}
+
 func TestAttributeExprValidate(t *testing.T) {
 	var (
 		ctx           = "ctx"
@@ -521,6 +567,84 @@ func TestAttributeExprHasDefaultValue(t *testing.T) {
 			Type: tc.typ,
 		}
 		if actual := attribute.HasDefaultValue(tc.attName); tc.expected != actual {
+			t.Errorf("%s: got %#v, expected %#v", k, actual, tc.expected)
+		}
+	}
+}
+
+func TestValidationExprHasRequiredOnly(t *testing.T) {
+	var (
+		values    = []interface{}{"foo"}
+		pattern   = "^foo$"
+		minimum   = 1.1
+		maximum   = 2.2
+		minLength = 2
+		maxLength = 3
+	)
+	cases := map[string]struct {
+		values    []interface{}
+		format    ValidationFormat
+		pattern   string
+		minimum   *float64
+		maximum   *float64
+		minLength *int
+		maxLength *int
+		expected  bool
+	}{
+		"has required only": {
+			expected: true,
+		},
+		"values is not nil": {
+			values:   values,
+			expected: false,
+		},
+		"format is not empty": {
+			format:   FormatDate,
+			expected: false,
+		},
+		"pattern is not empty": {
+			pattern:  pattern,
+			expected: false,
+		},
+		"minimum is not nil": {
+			minimum:  &minimum,
+			expected: false,
+		},
+		"maximum is not nil": {
+			maximum:  &maximum,
+			expected: false,
+		},
+		"min length is not nil": {
+			minLength: &minLength,
+			expected:  false,
+		},
+		"max length is not nil": {
+			maxLength: &maxLength,
+			expected:  false,
+		},
+		"complex validation": {
+			values:    values,
+			format:    FormatDate,
+			pattern:   pattern,
+			minimum:   &minimum,
+			maximum:   &maximum,
+			minLength: &minLength,
+			maxLength: &maxLength,
+			expected:  false,
+		},
+	}
+
+	for k, tc := range cases {
+		validation := &ValidationExpr{
+			Values:    tc.values,
+			Format:    tc.format,
+			Pattern:   tc.pattern,
+			Minimum:   tc.minimum,
+			Maximum:   tc.maximum,
+			MinLength: tc.minLength,
+			MaxLength: tc.maxLength,
+		}
+		if actual := validation.HasRequiredOnly(); tc.expected != actual {
 			t.Errorf("%s: got %#v, expected %#v", k, actual, tc.expected)
 		}
 	}

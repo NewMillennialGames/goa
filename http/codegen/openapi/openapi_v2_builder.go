@@ -508,6 +508,13 @@ func buildPathFromFileServer(s *V2, root *expr.RootExpr, fs *expr.HTTPFileServer
 
 		operationID := fmt.Sprintf("%s#%s", fs.Service.Name(), path)
 		schemes := root.API.Schemes()
+		// remove grpc and grpcs from schemes since it is not a valid scheme in
+		// openapi.
+		for i := len(schemes) - 1; i >= 0; i-- {
+			if schemes[i] == "grpc" || schemes[i] == "grpcs" {
+				schemes = append(schemes[:i], schemes[i+1:]...)
+			}
+		}
 
 		operation := &Operation{
 			Description:  fs.Description,
@@ -556,7 +563,7 @@ func buildPathFromExpr(s *V2, root *expr.RootExpr, h *expr.HostExpr, route *expr
 			return err
 		}
 		params = append(params, paramsFromHeaders(endpoint)...)
-
+		produces := []string{}
 		responses := make(map[string]*Response, len(endpoint.Responses))
 		for _, r := range endpoint.Responses {
 			if endpoint.MethodExpr.IsStreaming() {
@@ -573,6 +580,18 @@ func buildPathFromExpr(s *V2, root *expr.RootExpr, h *expr.HostExpr, route *expr
 				return err
 			}
 			responses[strconv.Itoa(r.StatusCode)] = resp
+			if r.ContentType != "" {
+				foundCT := false
+				for _, ct := range produces {
+					if ct == r.ContentType {
+						foundCT = true
+						break
+					}
+				}
+				if !foundCT {
+					produces = append(produces, r.ContentType)
+				}
+			}
 		}
 		for _, er := range endpoint.HTTPErrors {
 			resp, err := responseSpecFromExpr(s, root, er.Response, endpoint.Service.Name())
@@ -606,6 +625,13 @@ func buildPathFromExpr(s *V2, root *expr.RootExpr, h *expr.HostExpr, route *expr
 		}
 
 		schemes := h.Schemes()
+		// remove grpc and grpcs from schemes since it is not a valid scheme in
+		// openapi.
+		for i := len(schemes) - 1; i >= 0; i-- {
+			if schemes[i] == "grpc" || schemes[i] == "grpcs" {
+				schemes = append(schemes[:i], schemes[i+1:]...)
+			}
+		}
 
 		// replace http with ws for streaming endpoints
 		if endpoint.MethodExpr.IsStreaming() {
@@ -655,6 +681,7 @@ func buildPathFromExpr(s *V2, root *expr.RootExpr, h *expr.HostExpr, route *expr
 			ExternalDocs: docsFromExpr(endpoint.MethodExpr.Docs),
 			OperationID:  operationID,
 			Parameters:   params,
+			Produces:     produces,
 			Responses:    responses,
 			Schemes:      schemes,
 			Deprecated:   false,

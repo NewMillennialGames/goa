@@ -333,52 +333,6 @@ func route(method, path string) *expr.RouteExpr {
 	return r
 }
 
-// Headers groups a set of Header expressions. It makes it possible to list
-// required headers using the Required function.
-//
-// Headers must appear in an API or Service HTTP expression to define request
-// headers common to all the API or service methods. Headers may also appear
-// in a method, response or error HTTP expression to define the HTTP endpoint
-// request and response headers.
-//
-// Headers accepts one argument: Either a function listing the headers or a user
-// type which must be an object and whose attributes define the headers.
-//
-// Example:
-//
-//     var _ = API("cellar", func() {
-//         HTTP(func() {
-//             Headers(func() {
-//                 Header("version:Api-Version", String, "API version", func() {
-//                     Enum("1.0", "2.0")
-//                 })
-//                 Required("version")
-//             })
-//         })
-//     })
-//
-func Headers(args interface{}) {
-	h := headers(eval.Current())
-	if h == nil {
-		eval.IncompatibleDSL()
-		return
-	}
-	if fn, ok := args.(func()); ok {
-		eval.Execute(fn, h)
-		return
-	}
-	t, ok := args.(expr.UserType)
-	if !ok {
-		eval.InvalidArgError("function or type", args)
-		return
-	}
-	o := expr.AsObject(t)
-	if o == nil {
-		eval.ReportError("type must be an object but got %s", reflect.TypeOf(args).Name())
-	}
-	h.Merge(expr.NewMappedAttributeExpr(&expr.AttributeExpr{Type: o}))
-}
-
 // Header describes a single HTTP header. The properties (description, type,
 // validation etc.) of a header are inherited from the request or response type
 // attribute with the same name by default.
@@ -699,16 +653,11 @@ func Body(args ...interface{}) {
 	)
 	switch a := args[0].(type) {
 	case string:
-		if ref.Find(a) == nil {
-			eval.ReportError("%q is not found in result type", a)
-			return
-		}
-		obj := expr.AsObject(ref.Type)
-		if obj == nil {
+		if !expr.IsObject(ref.Type) {
 			eval.ReportError("%s type must be an object with an attribute with name %#v, got %T", kind, a, ref.Type)
 			return
 		}
-		attr = obj.Attribute(a)
+		attr = ref.Find(a)
 		if attr == nil {
 			eval.ReportError("%s type does not have an attribute named %#v", kind, a)
 			return
@@ -814,8 +763,7 @@ func Tag(name, value string) {
 	res.Tag = [2]string{name, value}
 }
 
-// ContentType sets the value of the Content-Type response header. By default
-// the ID of the result type is used.
+// ContentType sets the value of the Content-Type response header.
 //
 // ContentType may appear in a ResultType or a Response expression.
 // ContentType accepts one argument: the mime type as defined by RFC 6838.

@@ -49,6 +49,8 @@ type (
 		// HTTPErrors is the list of all the possible error HTTP
 		// responses.
 		HTTPErrors []*HTTPErrorExpr
+		// Requirements contains the security requirements for the HTTP endpoint.
+		Requirements []*SecurityExpr
 		// MultipartRequest indicates that the request content type for
 		// the endpoint is a multipart type.
 		MultipartRequest bool
@@ -156,8 +158,11 @@ func (e *HTTPEndpointExpr) QueryParams() *MappedAttributeExpr {
 		}
 		if !found {
 			obj.Set(at.Name, at.Attribute)
-			if e.Params.IsRequired(at.Name) {
-				v.AddRequired(at.Name)
+			// when looking for required attributes we need the unmapped keys
+			// (i.e. without the "attribute:name" syntax)
+			attName := strings.Split(at.Name, ":")[0]
+			if e.Params.IsRequired(attName) {
+				v.AddRequired(attName)
 			}
 		}
 	}
@@ -329,7 +334,7 @@ func (e *HTTPEndpointExpr) Validate() error {
 	}
 
 	// Validate definitions of params, headers and bodies against definition of payload
-	if e.MethodExpr.Payload.Type == Empty {
+	if isEmpty(e.MethodExpr.Payload) {
 		if e.MapQueryParams != nil {
 			verr.Add(e, "MapParams is set but Payload is not defined")
 		}
@@ -461,32 +466,37 @@ func (e *HTTPEndpointExpr) Finalize() {
 
 	// Initialize Authorization header implicitly defined via security DSL
 	// prior to computing headers and body.
-	for _, req := range e.MethodExpr.Requirements {
-		for _, sch := range req.Schemes {
-			var field string
-			switch sch.Kind {
-			case BasicAuthKind, NoKind:
-				continue
-			case APIKeyKind:
-				field = TaggedAttribute(e.MethodExpr.Payload, "security:apikey:"+sch.SchemeName)
-			case JWTKind:
-				field = TaggedAttribute(e.MethodExpr.Payload, "security:token")
-			case OAuth2Kind:
-				field = TaggedAttribute(e.MethodExpr.Payload, "security:accesstoken")
-			}
-			sch.Name, sch.In = findKey(e, field)
-			if sch.Name == "" {
-				sch.Name = "Authorization"
-				attr := e.MethodExpr.Payload.Find(field)
-				e.Headers.Type.(*Object).Set(field, attr)
-				e.Headers.Map(sch.Name, field)
-				if e.MethodExpr.Payload.IsRequired(field) {
-					if e.Headers.Validation == nil {
-						e.Headers.Validation = &ValidationExpr{}
+	if reqLen := len(e.MethodExpr.Requirements); reqLen > 0 {
+		e.Requirements = make([]*SecurityExpr, 0, reqLen)
+		for _, req := range e.MethodExpr.Requirements {
+			dupReq := DupRequirement(req)
+			for _, sch := range dupReq.Schemes {
+				var field string
+				switch sch.Kind {
+				case BasicAuthKind, NoKind:
+					continue
+				case APIKeyKind:
+					field = TaggedAttribute(e.MethodExpr.Payload, "security:apikey:"+sch.SchemeName)
+				case JWTKind:
+					field = TaggedAttribute(e.MethodExpr.Payload, "security:token")
+				case OAuth2Kind:
+					field = TaggedAttribute(e.MethodExpr.Payload, "security:accesstoken")
+				}
+				sch.Name, sch.In = findKey(e, field)
+				if sch.Name == "" {
+					sch.Name = "Authorization"
+					attr := e.MethodExpr.Payload.Find(field)
+					e.Headers.Type.(*Object).Set(field, attr)
+					e.Headers.Map(sch.Name, field)
+					if e.MethodExpr.Payload.IsRequired(field) {
+						if e.Headers.Validation == nil {
+							e.Headers.Validation = &ValidationExpr{}
+						}
+						e.Headers.Validation.AddRequired(field)
 					}
-					e.Headers.Validation.AddRequired(field)
 				}
 			}
+			e.Requirements = append(e.Requirements, dupReq)
 		}
 	}
 
@@ -519,11 +529,7 @@ func (e *HTTPEndpointExpr) Finalize() {
 		e.Body.Finalize()
 	}
 
-	if e.Body != nil && e.Body.Type != Empty && IsObject(e.Body.Type) {
-		ma := NewMappedAttributeExpr(e.Body)
-		init(ma)
-		e.Body = ma.AttributeExpr
-	} else {
+	if e.Body == nil {
 		// No explicit body, compute it
 		e.Body = httpRequestBody(e)
 	}
@@ -535,13 +541,6 @@ func (e *HTTPEndpointExpr) Finalize() {
 		r.Finalize(e, e.MethodExpr.Result)
 		if r.Body == nil {
 			r.Body = httpResponseBody(e, r)
-		}
-
-		// Initialize response content type if result is media type.
-		if r.Body.Type != Empty && r.ContentType == "" {
-			if mt, ok := r.Body.Type.(*ResultTypeExpr); ok {
-				r.ContentType = mt.Identifier
-			}
 		}
 	}
 
@@ -607,9 +606,7 @@ func (e *HTTPEndpointExpr) validateParams() *eval.ValidationErrors {
 			verr.Merge(nat.Attribute.Validate(ctx, e))
 		}
 	}
-	if e.MethodExpr.Payload == nil {
-		verr.Add(e, "Parameters are defined but Payload is not defined")
-	} else {
+	if e.MethodExpr.Payload != nil {
 		switch e.MethodExpr.Payload.Type.(type) {
 		case *Object:
 			for _, nat := range pparams {
@@ -807,31 +804,18 @@ func initAttrFromDesign(att, patt *AttributeExpr) {
 	if att.DefaultValue == nil {
 		att.DefaultValue = patt.DefaultValue
 	}
+	if att.Meta == nil {
+		att.Meta = patt.Meta
+	}
 }
 
-// findKey finds the given key in the endpoint expression and returns the
-// transport element name and the position (header, query, or body).
-func findKey(e *HTTPEndpointExpr, keyAtt string) (string, string) {
-	if n, exists := e.Params.FindKey(keyAtt); exists {
-		return n, "query"
-	} else if n, exists := e.Headers.FindKey(keyAtt); exists {
-		return n, "header"
-	} else if e.Body == nil {
-		return "", "header"
-	}
-	if _, ok := e.Body.Meta["http:body"]; ok {
-		if e.Body.Find(keyAtt) != nil {
-			return keyAtt, "body"
-		}
-		if m, ok := e.Body.Meta["origin:attribute"]; ok && m[0] == keyAtt {
-			return keyAtt, "body"
-		}
-	}
-	return "", "header"
-}
-
+// isEmpty returns true if an attribute is Empty type and it has no bases and
+// references, or if an attribute is an empty object.
 func isEmpty(a *AttributeExpr) bool {
 	if a.Type == Empty {
+		if len(a.Bases) != 0 || len(a.References) != 0 {
+			return false
+		}
 		return true
 	}
 	obj := AsObject(a.Type)

@@ -72,6 +72,35 @@ var MultipleMethodsDSL = func() {
 	})
 }
 
+var WithDefaultDSL = func() {
+	Service("WithDefault", func() {
+		Method("A", func() {
+			Payload(func() {
+				Attribute("IntField", Int, func() {
+					Default(1)
+				})
+				Attribute("StringField", String, func() {
+					Default("foo")
+				})
+				Attribute("OptionalField", String)
+				Attribute("RequiredField", Float32)
+				Required("RequiredField")
+			})
+			Result(func() {
+				Attribute("IntField", Int, func() {
+					Default(1)
+				})
+				Attribute("StringField", String, func() {
+					Default("foo")
+				})
+				Attribute("OptionalField", String)
+				Attribute("RequiredField", Float32)
+				Required("RequiredField")
+			})
+		})
+	})
+}
+
 var EmptyMethodDSL = func() {
 	Service("Empty", func() {
 		Method("Empty", func() {
@@ -196,6 +225,54 @@ var ResultWithOtherResultMethodDSL = func() {
 	Service("ResultWithOtherResult", func() {
 		Method("A", func() {
 			Result(RTWithViews)
+		})
+	})
+}
+
+var ResultWithResultCollectionMethodDSL = func() {
+	var RT2 = ResultType("application/vnd.result.2", func() {
+		TypeName("RT2")
+		Attributes(func() {
+			Field(1, "c", String)
+			Field(2, "d", Int)
+			Field(3, "e", String)
+			Required("c", "d")
+		})
+		View("default", func() {
+			Attribute("c")
+			Attribute("d")
+		})
+		View("extended", func() {
+			Attribute("c")
+			Attribute("d")
+			Attribute("e")
+		})
+		View("tiny", func() {
+			Attribute("d")
+		})
+	})
+	var RT = ResultType("application/vnd.result", func() {
+		TypeName("RT")
+		Attributes(func() {
+			Field(1, "a", CollectionOf(RT2))
+		})
+		View("default", func() {
+			Attribute("a")
+		})
+		View("extended", func() {
+			Attribute("a", func() {
+				View("extended")
+			})
+		})
+		View("tiny", func() {
+			Attribute("a", func() {
+				View("tiny")
+			})
+		})
+	})
+	Service("ResultWithResultTypeCollection", func() {
+		Method("A", func() {
+			Result(RT)
 		})
 	})
 }

@@ -15,7 +15,7 @@ import (
 func ServerFiles(genpkg string, root *expr.RootExpr) []*codegen.File {
 	fw := make([]*codegen.File, 2*len(root.API.HTTP.Services))
 	for i, svc := range root.API.HTTP.Services {
-		fw[i] = server(genpkg, svc)
+		fw[i] = serverFile(genpkg, svc)
 	}
 	for i, r := range root.API.HTTP.Services {
 		fw[i+len(root.API.HTTP.Services)] = serverEncodeDecode(genpkg, r)
@@ -24,7 +24,7 @@ func ServerFiles(genpkg string, root *expr.RootExpr) []*codegen.File {
 }
 
 // server returns the file implementing the HTTP server.
-func server(genpkg string, svc *expr.HTTPServiceExpr) *codegen.File {
+func serverFile(genpkg string, svc *expr.HTTPServiceExpr) *codegen.File {
 	path := filepath.Join(codegen.Gendir, "http", codegen.SnakeCase(svc.Name()), "server", "server.go")
 	data := HTTPServices.Get(svc.Name())
 	title := fmt.Sprintf("%s HTTP server", svc.Name())
@@ -1064,6 +1064,9 @@ func {{ .ResponseEncoder }}(encoder func(context.Context, http.ResponseWriter) g
 			res := v.({{ .Result.Ref }})
 		{{- end }}
 		{{- range .Result.Responses }}
+			{{- if .ContentType }}
+				ctx = context.WithValue(ctx, goahttp.ContentTypeKey, "{{ .ContentType }}")
+			{{- end }}
 			{{- if .TagName }}
 				{{- if .TagPointer }}
 					if res.{{ if .ViewedResult }}Projected.{{ end }}{{ .TagName }} != nil && *res.{{ if .ViewedResult }}Projected.{{ end }}{{ .TagName }} == {{ printf "%q" .TagValue }} {
@@ -1144,16 +1147,16 @@ const responseT = `{{ define "response" -}}
 	{{- end }}
 	{{- range .Headers }}
 		{{- $initDef := and (or .Pointer .Slice) .DefaultValue (not $.TagName) }}
-		{{- $checkNil := and (or (not .Required) $initDef) (not $.TagName) }}
+		{{- $checkNil := and (or .Pointer .Slice (eq .Type.Name "bytes") (eq .Type.Name "any") $initDef) (not $.TagName) }}
 		{{- if $checkNil }}
 	if res.{{ if $.ViewedResult }}Projected.{{ end }}{{ .FieldName }} != nil {
 		{{- end }}
 
 		{{- if eq .Type.Name "string" }}
-	w.Header().Set("{{ .Name }}", {{ if or (not .Required) $.ViewedResult }}*{{ end }}res{{ if $.ViewedResult }}.Projected{{ end }}{{ if .FieldName }}.{{ .FieldName }}{{ end }})
+	w.Header().Set("{{ .Name }}", {{ if or .Pointer $.ViewedResult }}*{{ end }}res{{ if $.ViewedResult }}.Projected{{ end }}{{ if .FieldName }}.{{ .FieldName }}{{ end }})
 		{{- else }}
 	val := res{{ if $.ViewedResult }}.Projected{{ end }}{{ if .FieldName }}.{{ .FieldName }}{{ end }}
-	{{ template "header_conversion" (headerConversionData .Type (printf "%ss" .VarName) .Required "val") }}
+	{{ template "header_conversion" (headerConversionData .Type (printf "%ss" .VarName) (not .Pointer) "val") }}
 	w.Header().Set("{{ .Name }}", {{ .VarName }}s)
 		{{- end }}
 
