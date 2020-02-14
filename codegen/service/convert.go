@@ -528,13 +528,13 @@ func buildDesignType(dt *expr.DataType, t reflect.Type, ref expr.DataType, recs 
 }
 
 // returns true if a field with name needs convertion to obj
-func needsConversion(obj *design.Object, name string) bool {
+func needsConversion(obj *expr.Object, name string) bool {
 	if obj == nil {
 		return false
 	}
 	// first look for a "struct.field.external" metadata
 	for _, nat := range *obj {
-		if m := nat.Attribute.Metadata["struct.field.external"]; len(m) > 0 {
+		if m := nat.Attribute.Meta["struct.field.external"]; len(m) > 0 {
 			if m[0] == name {
 				return false
 			}
