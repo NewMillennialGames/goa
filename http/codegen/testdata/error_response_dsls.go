@@ -24,7 +24,7 @@ var PrimitiveErrorResponseDSL = func() {
 			HTTP(func() {
 				GET("/one/two")
 				Response("bad_request", StatusBadRequest)
-				Response("internal_error", StatusInternalServerError)
+				Response(StatusInternalServerError, "internal_error")
 			})
 		})
 	})
@@ -34,13 +34,52 @@ var ServiceErrorResponseDSL = func() {
 	Service("ServiceServiceErrorResponse", func() {
 		Error("bad_request")
 		HTTP(func() {
-			Response("bad_request", StatusBadRequest)
+			Response(StatusBadRequest, "bad_request")
 		})
 		Method("MethodServiceErrorResponse", func() {
 			Error("internal_error")
 			HTTP(func() {
 				GET("/one/two")
 				Response("internal_error", StatusInternalServerError)
+			})
+		})
+	})
+}
+
+var APIErrorResponseDSL = func() {
+	var _ = API("test", func() {
+		Error("bad_request")
+		HTTP(func() {
+			Response(StatusBadRequest, "bad_request")
+		})
+	})
+	Service("ServiceServiceErrorResponse", func() {
+		Method("MethodServiceErrorResponse", func() {
+			Error("bad_request")
+			Error("internal_error")
+			HTTP(func() {
+				GET("/one/two")
+				Response("internal_error", StatusInternalServerError)
+			})
+		})
+	})
+}
+
+var APINoBodyErrorResponseDSL = func() {
+	var StringError = Type("StringError", func() { Attribute("header") })
+	var _ = API("test", func() {
+		Error("bad_request", StringError)
+		HTTP(func() {
+			Response("bad_request", StatusBadRequest, func() {
+				Header("header")
+			})
+		})
+	})
+	Service("ServiceNoBodyErrorResponse", func() {
+		Error("bad_request")
+		Method("MethodServiceErrorResponse", func() {
+			HTTP(func() {
+				GET("/one/two")
 			})
 		})
 	})
